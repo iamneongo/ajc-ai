@@ -15,11 +15,20 @@ function readAppVersion() {
 }
 
 const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || readAppVersion()
+const appBasePath = (() => {
+    const trimmed = String(process.env.NEXT_PUBLIC_BASE_PATH || '').trim()
+    if (!trimmed || trimmed === '/') {
+        return ''
+    }
+    return `/${trimmed.replace(/^\/+|\/+$/g, '')}`
+})()
 
 const nextConfig: NextConfig = {
     allowedDevOrigins: ['127.0.0.1'],
+    basePath: appBasePath || undefined,
     env: {
         NEXT_PUBLIC_APP_VERSION: appVersion,
+        NEXT_PUBLIC_BASE_PATH: appBasePath,
     },
     output: 'export',
     trailingSlash: true,
