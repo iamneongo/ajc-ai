@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from api import accounts, ai, image_tasks, register, system
-from api.support import resolve_web_asset, start_limited_account_watcher
+from api.support import normalize_web_request_path, resolve_web_asset, start_limited_account_watcher
 from services.backup_service import backup_service
 from services.config import config
 
@@ -51,7 +51,8 @@ def create_app() -> FastAPI:
         asset = resolve_web_asset(full_path)
         if asset is not None:
             return FileResponse(asset)
-        if full_path.strip("/").startswith("_next/"):
+        normalized_path = normalize_web_request_path(full_path)
+        if normalized_path.startswith("_next/"):
             raise HTTPException(status_code=404, detail="Not Found")
         fallback = resolve_web_asset("")
         if fallback is None:

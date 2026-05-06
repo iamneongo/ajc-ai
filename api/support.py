@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from threading import Event, Thread
 
@@ -11,6 +12,7 @@ from services.config import config
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 WEB_DIST_DIR = BASE_DIR / "web_dist"
+WEB_BASE_PATH = f"/{str(os.getenv('WEB_BASE_PATH', '') or '').strip('/').strip()}" if str(os.getenv("WEB_BASE_PATH", "") or "").strip("/") else ""
 
 
 def extract_bearer_token(authorization: str | None) -> str:
@@ -79,6 +81,19 @@ def sanitize_sub2api_servers(servers: list[dict]) -> list[dict]:
     return [sanitized for server in servers if (sanitized := sanitize_sub2api_server(server)) is not None]
 
 
+def normalize_web_request_path(requested_path: str) -> str:
+    clean_path = requested_path.strip("/")
+    if not clean_path or not WEB_BASE_PATH:
+        return clean_path
+
+    base_prefix = WEB_BASE_PATH.strip("/")
+    if clean_path == base_prefix:
+        return ""
+    if clean_path.startswith(f"{base_prefix}/"):
+        return clean_path[len(base_prefix) + 1 :]
+    return clean_path
+
+
 def start_limited_account_watcher(stop_event: Event) -> Thread:
     interval_seconds = config.refresh_account_interval_minute * 60
 
@@ -101,7 +116,7 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
 def resolve_web_asset(requested_path: str) -> Path | None:
     if not WEB_DIST_DIR.exists():
         return None
-    clean_path = requested_path.strip("/")
+    clean_path = normalize_web_request_path(requested_path)
     base_dir = WEB_DIST_DIR.resolve()
     candidates = [base_dir / "index.html"] if not clean_path else [
         base_dir / Path(clean_path),
