@@ -1,7 +1,5 @@
 "use client";
 
-import localforage from "localforage";
-
 export type AuthRole = "admin" | "user";
 
 export type StoredAuthSession = {
@@ -14,10 +12,16 @@ export type StoredAuthSession = {
 export const AUTH_KEY_STORAGE_KEY = "chatgpt2api_auth_key";
 export const AUTH_SESSION_STORAGE_KEY = "chatgpt2api_auth_session";
 
-const authStorage = localforage.createInstance({
-  name: "chatgpt2api",
-  storeName: "auth",
-});
+function getBrowserStorage() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
 
 function normalizeSession(value: unknown, fallbackKey = ""): StoredAuthSession | null {
   if (!value || typeof value !== "object") {
@@ -44,27 +48,30 @@ export function getDefaultRouteForRole(role: AuthRole) {
 }
 
 export async function getStoredAuthKey() {
-  if (typeof window === "undefined") {
-    return "";
-  }
-  const value = await authStorage.getItem<string>(AUTH_KEY_STORAGE_KEY);
-  return String(value || "").trim();
+  const storage = getBrowserStorage();
+  return String(storage?.getItem(AUTH_KEY_STORAGE_KEY) || "").trim();
 }
 
 export async function getStoredAuthSession() {
-  if (typeof window === "undefined") {
+  const storage = getBrowserStorage();
+  if (!storage) {
     return null;
   }
 
-  const [storedKey, storedSession] = await Promise.all([
-    authStorage.getItem<string>(AUTH_KEY_STORAGE_KEY),
-    authStorage.getItem<StoredAuthSession>(AUTH_SESSION_STORAGE_KEY),
-  ]);
+  const storedKey = storage.getItem(AUTH_KEY_STORAGE_KEY);
+  let storedSession: StoredAuthSession | null = null;
+
+  try {
+    const rawStoredSession = storage.getItem(AUTH_SESSION_STORAGE_KEY);
+    storedSession = rawStoredSession ? (JSON.parse(rawStoredSession) as StoredAuthSession) : null;
+  } catch {
+    storedSession = null;
+  }
 
   const normalizedSession = normalizeSession(storedSession, String(storedKey || ""));
   if (normalizedSession) {
     if (normalizedSession.key !== String(storedKey || "").trim()) {
-      await authStorage.setItem(AUTH_KEY_STORAGE_KEY, normalizedSession.key);
+      storage.setItem(AUTH_KEY_STORAGE_KEY, normalizedSession.key);
     }
     return normalizedSession;
   }
@@ -82,10 +89,13 @@ export async function setStoredAuthSession(session: StoredAuthSession) {
     return;
   }
 
-  await Promise.all([
-    authStorage.setItem(AUTH_KEY_STORAGE_KEY, normalizedSession.key),
-    authStorage.setItem(AUTH_SESSION_STORAGE_KEY, normalizedSession),
-  ]);
+  const storage = getBrowserStorage();
+  if (!storage) {
+    return;
+  }
+
+  storage.setItem(AUTH_KEY_STORAGE_KEY, normalizedSession.key);
+  storage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(normalizedSession));
 }
 
 export async function setStoredAuthKey(authKey: string) {
@@ -94,17 +104,17 @@ export async function setStoredAuthKey(authKey: string) {
     await clearStoredAuthSession();
     return;
   }
-  await authStorage.setItem(AUTH_KEY_STORAGE_KEY, normalizedAuthKey);
+  const storage = getBrowserStorage();
+  storage?.setItem(AUTH_KEY_STORAGE_KEY, normalizedAuthKey);
 }
 
 export async function clearStoredAuthSession() {
-  if (typeof window === "undefined") {
+  const storage = getBrowserStorage();
+  if (!storage) {
     return;
   }
-  await Promise.all([
-    authStorage.removeItem(AUTH_KEY_STORAGE_KEY),
-    authStorage.removeItem(AUTH_SESSION_STORAGE_KEY),
-  ]);
+  storage.removeItem(AUTH_KEY_STORAGE_KEY);
+  storage.removeItem(AUTH_SESSION_STORAGE_KEY);
 }
 
 export async function clearStoredAuthKey() {

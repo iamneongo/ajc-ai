@@ -19,6 +19,7 @@ const userNavItems = [{ href: "/image", label: "Trợ lý" }];
 export function TopNav() {
   const pathname = usePathname();
   const router = useRouter();
+  const normalizedPathname = webConfig.normalizePathname(pathname);
   const [session, setSession] = useState<StoredAuthSession | null | undefined>(
     undefined,
   );
@@ -27,7 +28,7 @@ export function TopNav() {
     let active = true;
 
     const load = async () => {
-      if (pathname === "/login") {
+      if (normalizedPathname === "/login") {
         if (!active) {
           return;
         }
@@ -46,14 +47,14 @@ export function TopNav() {
     return () => {
       active = false;
     };
-  }, [pathname]);
+  }, [normalizedPathname]);
 
   const handleLogout = async () => {
     await clearStoredAuthSession();
-    router.replace("/login");
+    router.replace(webConfig.loginPath);
   };
 
-  if (pathname === "/login" || session === undefined || !session) {
+  if (normalizedPathname === "/login" || session === undefined || !session) {
     return null;
   }
 
@@ -66,7 +67,7 @@ export function TopNav() {
       <div className="flex min-h-12 flex-col gap-1 px-3 py-2 sm:h-12 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-6 sm:py-0">
         <div className="flex items-center justify-between gap-2 sm:justify-start sm:gap-3">
           <Link
-            href="/image"
+            href={webConfig.withBasePath("/image")}
             className="shrink-0 py-1 text-[15px] font-bold tracking-tight text-stone-950 transition hover:text-stone-700"
           >
             AJC AI
@@ -81,11 +82,11 @@ export function TopNav() {
         </div>
         <nav className="hide-scrollbar -mx-1 flex min-w-0 flex-1 gap-1 overflow-x-auto px-1 sm:mx-0 sm:justify-center sm:gap-8 sm:overflow-visible sm:px-0">
           {navItems.map((item) => {
-            const active = pathname === item.href;
+            const active = normalizedPathname === item.href;
             return (
               <Link
                 key={item.href}
-                href={item.href}
+                href={webConfig.withBasePath(item.href)}
                 className={cn(
                   "relative shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-[13px] font-medium transition sm:rounded-none sm:px-0 sm:text-[15px]",
                   active
