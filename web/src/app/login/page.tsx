@@ -5,7 +5,6 @@ import { useState } from "react";
 import { LoaderCircle, LockKeyhole } from "lucide-react";
 import { toast } from "sonner";
 
-import webConfig from "@/constants/common-env";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -35,7 +34,7 @@ export default function LoginPage() {
         subjectId: data.subject_id,
         name: data.name,
       });
-      router.replace(webConfig.withBasePath(getDefaultRouteForRole(data.role)));
+      router.replace(getDefaultRouteForRole(data.role));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Đăng nhập thất bại";
       toast.error(message);

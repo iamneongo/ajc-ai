@@ -51,7 +51,7 @@ export function TopNav() {
 
   const handleLogout = async () => {
     await clearStoredAuthSession();
-    router.replace(webConfig.loginPath);
+    router.replace("/login");
   };
 
   if (normalizedPathname === "/login" || session === undefined || !session) {
@@ -67,7 +67,7 @@ export function TopNav() {
       <div className="flex min-h-12 flex-col gap-1 px-3 py-2 sm:h-12 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-6 sm:py-0">
         <div className="flex items-center justify-between gap-2 sm:justify-start sm:gap-3">
           <Link
-            href={webConfig.withBasePath("/image")}
+            href="/image"
             className="shrink-0 py-1 text-[15px] font-bold tracking-tight text-stone-950 transition hover:text-stone-700"
           >
             AJC AI
@@ -86,7 +86,7 @@ export function TopNav() {
             return (
               <Link
                 key={item.href}
-                href={webConfig.withBasePath(item.href)}
+                href={item.href}
                 className={cn(
                   "relative shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-[13px] font-medium transition sm:rounded-none sm:px-0 sm:text-[15px]",
                   active

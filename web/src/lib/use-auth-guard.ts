@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import webConfig from "@/constants/common-env";
 import { getValidatedAuthSession } from "@/lib/auth-session";
 import {
   getDefaultRouteForRole,
@@ -35,14 +34,14 @@ export function useAuthGuard(allowedRoles?: AuthRole[]): UseAuthGuardResult {
       if (!storedSession) {
         setSession(null);
         setIsCheckingAuth(false);
-        router.replace(webConfig.loginPath);
+        router.replace("/login");
         return;
       }
 
       if (roleList.length > 0 && !roleList.includes(storedSession.role)) {
         setSession(storedSession);
         setIsCheckingAuth(false);
-        router.replace(webConfig.withBasePath(getDefaultRouteForRole(storedSession.role)));
+        router.replace(getDefaultRouteForRole(storedSession.role));
         return;
       }
 
@@ -73,7 +72,7 @@ export function useRedirectIfAuthenticated() {
       }
 
       if (storedSession) {
-        router.replace(webConfig.withBasePath(getDefaultRouteForRole(storedSession.role)));
+        router.replace(getDefaultRouteForRole(storedSession.role));
         return;
       }
 

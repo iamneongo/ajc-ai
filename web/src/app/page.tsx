@@ -3,7 +3,6 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-import webConfig from "@/constants/common-env";
 import { getValidatedAuthSession } from "@/lib/auth-session";
 import { getDefaultRouteForRole } from "@/store/auth";
 
@@ -20,8 +19,8 @@ export default function HomePage() {
       }
       router.replace(
         session
-          ? webConfig.withBasePath(getDefaultRouteForRole(session.role))
-          : webConfig.loginPath,
+          ? getDefaultRouteForRole(session.role)
+          : "/login",
       );
     };
 
