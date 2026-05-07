@@ -49,7 +49,15 @@ def require_admin(authorization: str | None) -> dict[str, object]:
 
 
 def resolve_image_base_url(request: Request) -> str:
-    return config.base_url or f"{request.url.scheme}://{request.headers.get('host', request.url.netloc)}"
+    base_url = str(
+        config.base_url
+        or f"{request.url.scheme}://{request.headers.get('host', request.url.netloc)}"
+    ).rstrip("/")
+    if not WEB_BASE_PATH:
+        return base_url
+    if base_url.endswith(WEB_BASE_PATH):
+        return base_url
+    return f"{base_url}{WEB_BASE_PATH}"
 
 
 def raise_image_quota_error(exc: Exception) -> None:
