@@ -157,40 +157,77 @@ function recoverInterruptedChats(conversations: ChatConversation[]) {
   return { changed, items: nextItems };
 }
 
-function messageParts(message: ChatMessage) {
+function messageHasImages(message: ChatMessage) {
+  return Boolean(
+    (message.attachments && message.attachments.length > 0) ||
+      (message.images && message.images.length > 0),
+  );
+}
+
+function pickImageContextIndexes(
+  messages: ChatMessage[],
+  limit: number = 2,
+) {
+  const indexes = new Set<number>();
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (!messageHasImages(messages[index])) {
+      continue;
+    }
+    indexes.add(index);
+    if (indexes.size >= limit) {
+      break;
+    }
+  }
+  return indexes;
+}
+
+function messageParts(
+  message: ChatMessage,
+  options: { includeImages?: boolean } = {},
+) {
   const parts: Array<
     | { type: "text"; text: string }
     | { type: "image_url"; image_url: { url: string } }
   > = [];
+  const includeImages = options.includeImages !== false;
   const content = message.content.trim();
   if (content) {
     parts.push({ type: "text", text: content });
   }
-  for (const attachment of message.attachments || []) {
-    parts.push({
-      type: "image_url",
-      image_url: { url: attachment.dataUrl },
-    });
-  }
-  for (const image of message.images || []) {
-    const imageSource =
-      message.role === "assistant" && image.url ? image.url : image.dataUrl;
-    parts.push({
-      type: "image_url",
-      image_url: { url: imageSource },
-    });
+  if (includeImages) {
+    for (const attachment of message.attachments || []) {
+      parts.push({
+        type: "image_url",
+        image_url: { url: attachment.dataUrl },
+      });
+    }
+    for (const image of message.images || []) {
+      const imageSource =
+        message.role === "assistant" && image.url ? image.url : image.dataUrl;
+      parts.push({
+        type: "image_url",
+        image_url: { url: imageSource },
+      });
+    }
   }
   return parts;
 }
 
 function conversationMessagesForApi(
   messages: ChatMessage[],
+  options: { compactImageHistory?: boolean; imageContextLimit?: number } = {},
 ): WorkspaceRequestMessage[] {
-  return messages.flatMap((message) => {
+  const keepImageIndexes =
+    options.compactImageHistory === false
+      ? null
+      : pickImageContextIndexes(messages, options.imageContextLimit ?? 2);
+  return messages.flatMap((message, index) => {
     if (message.role === "assistant" && message.status !== "done") {
       return [];
     }
-    const parts = messageParts(message);
+    const parts = messageParts(message, {
+      includeImages: keepImageIndexes ? keepImageIndexes.has(index) : true,
+    });
     if (parts.length === 0) {
       return [];
     }
@@ -199,6 +236,12 @@ function conversationMessagesForApi(
     }
     return [{ role: message.role, content: parts }];
   });
+}
+
+function isPayloadTooLargeError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const lower = message.toLowerCase();
+  return lower.includes("status code 413") || lower.includes("status=413");
 }
 
 function assistantMessageFallbackText(
@@ -596,10 +639,11 @@ export function ChatWorkspace() {
           messages: [userMessage, pendingAssistantMessage],
         };
 
-    const requestMessages = conversationMessagesForApi([
+    const draftMessages = [
       ...(targetConversation?.messages ?? []),
       userMessage,
-    ]);
+    ];
+    const requestMessages = conversationMessagesForApi(draftMessages);
 
     setSelectedConversationId(conversationId);
     resetComposer();
@@ -607,9 +651,25 @@ export function ChatWorkspace() {
     await persistConversation(baseConversation);
 
     try {
-      const response = await createWorkspaceResponse(requestMessages, {
-        model: chatModel,
-      });
+      let response;
+      try {
+        response = await createWorkspaceResponse(requestMessages, {
+          model: chatModel,
+        });
+      } catch (error) {
+        if (!isPayloadTooLargeError(error)) {
+          throw error;
+        }
+        response = await createWorkspaceResponse(
+          conversationMessagesForApi(draftMessages, {
+            compactImageHistory: true,
+            imageContextLimit: 1,
+          }),
+          {
+            model: chatModel,
+          },
+        );
+      }
       const responseImages = responseImagesToMessageImages(
         response.images || [],
       );
