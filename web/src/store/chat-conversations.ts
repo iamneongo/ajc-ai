@@ -48,6 +48,31 @@ const chatConversationStorage = localforage.createInstance({
 const CHAT_CONVERSATIONS_KEY = "items";
 let chatConversationWriteQueue: Promise<void> = Promise.resolve();
 
+function hasLegacyInlineAssistantImages(
+  conversations: Array<ChatConversation & Record<string, unknown>>,
+) {
+  return conversations.some((conversation) => {
+    if (!Array.isArray(conversation.messages)) {
+      return false;
+    }
+    return conversation.messages.some((message) => {
+      const images =
+        message &&
+        typeof message === "object" &&
+        Array.isArray((message as Record<string, unknown>).images)
+          ? ((message as Record<string, unknown>).images as Array<
+              ChatImage & Record<string, unknown>
+            >)
+          : [];
+      return images.some((image) => {
+        const dataUrl = typeof image.dataUrl === "string" ? image.dataUrl : "";
+        const url = typeof image.url === "string" ? image.url : "";
+        return Boolean(url) && dataUrl !== url;
+      });
+    });
+  });
+}
+
 function normalizeAttachment(
   attachment: ChatAttachment & Record<string, unknown>,
   fallbackIndex: number,
@@ -69,14 +94,16 @@ function normalizeImage(
   image: ChatImage & Record<string, unknown>,
   fallbackIndex: number,
 ): ChatImage | null {
+  const url = typeof image.url === "string" && image.url ? image.url : "";
   const dataUrl = typeof image.dataUrl === "string" ? image.dataUrl : "";
-  if (!dataUrl) {
+  const preferredSrc = url || dataUrl;
+  if (!preferredSrc) {
     return null;
   }
   return {
     id: String(image.id || `image-${fallbackIndex}`),
-    dataUrl,
-    url: typeof image.url === "string" && image.url ? image.url : undefined,
+    dataUrl: preferredSrc,
+    url: url || undefined,
     revised_prompt:
       typeof image.revised_prompt === "string" && image.revised_prompt
         ? image.revised_prompt
@@ -196,6 +223,20 @@ async function readStoredChatConversations(): Promise<ChatConversation[]> {
       Array<ChatConversation & Record<string, unknown>>
     >(CHAT_CONVERSATIONS_KEY)) || [];
   return items.map(normalizeConversation);
+}
+
+export async function loadChatConversations(): Promise<{
+  items: ChatConversation[];
+  needsCompaction: boolean;
+}> {
+  const storedItems =
+    (await chatConversationStorage.getItem<
+      Array<ChatConversation & Record<string, unknown>>
+    >(CHAT_CONVERSATIONS_KEY)) || [];
+  return {
+    items: storedItems.map(normalizeConversation),
+    needsCompaction: hasLegacyInlineAssistantImages(storedItems),
+  };
 }
 
 export async function listChatConversations(): Promise<ChatConversation[]> {

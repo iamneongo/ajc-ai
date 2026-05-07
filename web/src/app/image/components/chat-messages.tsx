@@ -30,6 +30,9 @@ export function ChatMessages({
   >([]);
   const currentLightboxItems = useMemo(() => lightboxImages, [lightboxImages]);
 
+  const imageSource = (image: { dataUrl: string; url?: string }) =>
+    image.url || image.dataUrl;
+
   const openLightbox = (
     images: Array<{ id: string; src: string }>,
     index: number,
@@ -82,7 +85,10 @@ export function ChatMessages({
             src: item.dataUrl,
           })) || [];
         const generatedImages =
-          message.images?.map((item) => ({ id: item.id, src: item.dataUrl })) ||
+          message.images?.map((item) => ({
+            id: item.id,
+            src: imageSource(item),
+          })) ||
           [];
         return (
           <div
@@ -183,7 +189,7 @@ export function ChatMessages({
                               className="group overflow-hidden rounded-3xl border border-stone-200 bg-stone-50 text-left transition hover:border-stone-300"
                             >
                               <img
-                                src={image.dataUrl}
+                                src={imageSource(image)}
                                 alt={`Ảnh tạo ra ${index + 1}`}
                                 className="w-full object-cover"
                               />

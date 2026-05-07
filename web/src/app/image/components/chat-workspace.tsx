@@ -23,6 +23,7 @@ import {
 import {
   clearChatConversations,
   deleteChatConversation,
+  loadChatConversations,
   listChatConversations,
   saveChatConversation,
   saveChatConversations,
@@ -102,7 +103,8 @@ function imageFromResponse(
 ): ChatImage | null {
   const b64 = String(item.b64_json || "").trim();
   const url = String(item.url || "").trim();
-  const src = b64 ? `data:image/png;base64,${b64}` : url;
+  const inlineSrc = b64 ? `data:image/png;base64,${b64}` : "";
+  const src = url || inlineSrc;
   if (!src) {
     return null;
   }
@@ -298,9 +300,9 @@ export function ChatWorkspace() {
           setChatModel(storedModel);
         }
 
-        const items = await listChatConversations();
+        const { items, needsCompaction } = await loadChatConversations();
         const recovered = recoverInterruptedChats(items);
-        if (recovered.changed) {
+        if (recovered.changed || needsCompaction) {
           await saveChatConversations(recovered.items);
         }
         if (cancelled) {
