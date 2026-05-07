@@ -32,6 +32,8 @@ export function ChatMessages({
 
   const imageSource = (image: { dataUrl: string; url?: string }) =>
     image.url || image.dataUrl;
+  const attachmentSource = (attachment: { dataUrl: string; url?: string }) =>
+    attachment.url || attachment.dataUrl;
 
   const openLightbox = (
     images: Array<{ id: string; src: string }>,
@@ -82,7 +84,7 @@ export function ChatMessages({
         const attachmentLightboxImages =
           message.attachments?.map((item) => ({
             id: item.id,
-            src: item.dataUrl,
+            src: attachmentSource(item),
           })) || [];
         const generatedImages =
           message.images?.map((item) => ({
@@ -159,11 +161,11 @@ export function ChatMessages({
                             }
                             className="group overflow-hidden rounded-2xl border border-stone-200 bg-stone-50 text-left transition hover:border-stone-300"
                           >
-                            <img
-                              src={image.dataUrl}
-                              alt={image.name || `Ảnh đính kèm ${index + 1}`}
-                              className="h-28 w-full object-cover"
-                            />
+                              <img
+                                src={attachmentSource(image)}
+                                alt={image.name || `Ảnh đính kèm ${index + 1}`}
+                                className="h-28 w-full object-cover"
+                              />
                             <div className="truncate px-3 py-2 text-xs text-stone-500">
                               {image.name || `Ảnh đính kèm ${index + 1}`}
                             </div>

@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from services.content_filter import request_text
 from services.protocol import openai_v1_image_edit, openai_v1_image_generations
+from services.protocol.conversation import save_image_bytes
 from services.protocol.conversation import ConversationRequest, collect_text, normalize_messages, text_backend
 from utils.helper import extract_image_from_message_content
 
@@ -380,6 +381,10 @@ def handle_workspace_request(
     ]
     if latest_uploaded_images:
         items = _merge_latest_user_uploads(items, latest_uploaded_images)
+    uploaded_image_urls = [
+        {"url": save_image_bytes(data, base_url)}
+        for data, _mime in latest_uploaded_images[:4]
+    ]
 
     prompt = _latest_user_prompt(items)
     if not prompt and not _recent_context_images(items):
@@ -387,20 +392,26 @@ def handle_workspace_request(
 
     decided_mode = decide_workspace_mode(items, mode)
     if decided_mode == "text":
-        return _text_response(items, str(model or "auto").strip() or "auto")
+        result = _text_response(items, str(model or "auto").strip() or "auto")
+        if uploaded_image_urls:
+            result["uploaded_images"] = uploaded_image_urls
+        return result
     if decided_mode == "image_generate":
         if not prompt:
             raise HTTPException(status_code=400, detail={"error": "prompt is required for image generation"})
-        return _image_generate_response(
+        result = _image_generate_response(
             prompt=prompt,
             model=str(image_model or "gpt-image-2").strip() or "gpt-image-2",
             n=max(1, min(4, int(n or 1))),
             size=size,
             base_url=base_url,
         )
+        if uploaded_image_urls:
+            result["uploaded_images"] = uploaded_image_urls
+        return result
 
     images = _latest_user_images(items) or _recent_context_images(items)
-    return _image_edit_response(
+    result = _image_edit_response(
         prompt=prompt,
         model=str(image_model or "gpt-image-2").strip() or "gpt-image-2",
         n=max(1, min(4, int(n or 1))),
@@ -408,3 +419,6 @@ def handle_workspace_request(
         base_url=base_url,
         images=images,
     )
+    if uploaded_image_urls:
+        result["uploaded_images"] = uploaded_image_urls
+    return result

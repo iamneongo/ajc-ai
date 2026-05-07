@@ -224,6 +224,7 @@ export type WorkspaceResponse = {
     content: string;
   };
   images: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
+  uploaded_images?: Array<{ url?: string }>;
   created?: number;
 };
 

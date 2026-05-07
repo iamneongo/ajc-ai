@@ -85,21 +85,59 @@ function readFileAsDataUrl(file: File) {
   });
 }
 
-function dataUrlToFile(attachment: ChatAttachment, index: number) {
-  const normalized = String(attachment.dataUrl || "");
-  const [header, data = ""] = normalized.split(",", 2);
-  const mimeMatch = header.match(/^data:(.*?);base64$/i);
-  const mime = mimeMatch?.[1] || attachment.type || "image/png";
-  const binary = atob(data);
-  const bytes = new Uint8Array(binary.length);
-  for (let indexOffset = 0; indexOffset < binary.length; indexOffset += 1) {
-    bytes[indexOffset] = binary.charCodeAt(indexOffset);
+function loadImageElement(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Đọc ảnh đính kèm thất bại"));
+    };
+    image.src = objectUrl;
+  });
+}
+
+async function readFileAsPreviewDataUrl(file: File) {
+  if (
+    typeof document === "undefined" ||
+    !file.type.startsWith("image/") ||
+    file.type === "image/svg+xml" ||
+    file.type === "image/gif"
+  ) {
+    return readFileAsDataUrl(file);
   }
-  return new File(
-    [bytes],
-    attachment.name || `attachment-${index + 1}.png`,
-    { type: mime },
-  );
+
+  const original = await readFileAsDataUrl(file);
+  if (file.size <= 700 * 1024) {
+    return original;
+  }
+
+  try {
+    const image = await loadImageElement(file);
+    const maxDimension = 1600;
+    const scale = Math.min(
+      1,
+      maxDimension / Math.max(image.naturalWidth, image.naturalHeight, 1),
+    );
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return original;
+    }
+    context.drawImage(image, 0, 0, width, height);
+    const optimized = canvas.toDataURL("image/webp", 0.82);
+    return optimized.length < original.length ? optimized : original;
+  } catch {
+    return original;
+  }
 }
 
 function attachmentFromFile(
@@ -216,7 +254,7 @@ function messageParts(
     for (const attachment of message.attachments || []) {
       parts.push({
         type: "image_url",
-        image_url: { url: attachment.dataUrl },
+        image_url: { url: attachment.url || attachment.dataUrl },
       });
     }
     for (const image of message.images || []) {
@@ -339,6 +377,7 @@ export function ChatWorkspace() {
   const [chatPrompt, setChatPrompt] = useState("");
   const [chatModel, setChatModel] = useState("auto");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<
@@ -506,6 +545,7 @@ export function ChatWorkspace() {
   const resetComposer = useCallback(() => {
     setChatPrompt("");
     setAttachments([]);
+    setAttachmentFiles([]);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -599,10 +639,11 @@ export function ChatWorkspace() {
     try {
       const nextAttachments = await Promise.all(
         files.map(async (file, index) =>
-          attachmentFromFile(file, await readFileAsDataUrl(file), index),
+          attachmentFromFile(file, await readFileAsPreviewDataUrl(file), index),
         ),
       );
       setAttachments((current) => [...current, ...nextAttachments]);
+      setAttachmentFiles((current) => [...current, ...files]);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -621,6 +662,9 @@ export function ChatWorkspace() {
       }
       return next;
     });
+    setAttachmentFiles((current) =>
+      current.filter((_, currentIndex) => currentIndex !== index),
+    );
   }, []);
 
   const handleSubmit = useCallback(async () => {
@@ -680,9 +724,7 @@ export function ChatWorkspace() {
       userMessage,
     ];
     const hasNewUploads = attachments.length > 0;
-    const uploadedFiles = hasNewUploads
-      ? attachments.map((attachment, index) => dataUrlToFile(attachment, index))
-      : [];
+    const uploadedFiles = hasNewUploads ? attachmentFiles : [];
     const requestMessages = conversationMessagesForApi(draftMessages, {
       omitLatestUserImages: hasNewUploads,
     });
@@ -730,6 +772,9 @@ export function ChatWorkspace() {
       const responseImages = responseImagesToMessageImages(
         response.images || [],
       );
+      const uploadedImageUrls = Array.isArray(response.uploaded_images)
+        ? response.uploaded_images.map((item) => String(item?.url || "").trim())
+        : [];
       const assistantText =
         String(response.message?.content || "").trim() ||
         assistantMessageFallbackText(response.mode, responseImages.length);
@@ -740,7 +785,15 @@ export function ChatWorkspace() {
           model: chatModel,
           updatedAt: new Date().toISOString(),
           messages: conversation.messages.map((message) =>
-            message.id === pendingAssistantMessage.id
+            message.id === userMessage.id
+              ? {
+                  ...message,
+                  attachments: message.attachments?.map((attachment, index) => ({
+                    ...attachment,
+                    url: uploadedImageUrls[index] || attachment.url,
+                  })),
+                }
+              : message.id === pendingAssistantMessage.id
               ? {
                   ...message,
                   content: assistantText,
@@ -787,6 +840,7 @@ export function ChatWorkspace() {
     }
   }, [
     attachments,
+    attachmentFiles,
     chatModel,
     chatPrompt,
     isSending,

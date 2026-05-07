@@ -11,6 +11,7 @@ export type ChatAttachment = {
   name: string;
   type: string;
   dataUrl: string;
+  url?: string;
 };
 
 export type ChatImage = {
@@ -77,16 +78,19 @@ function normalizeAttachment(
   attachment: ChatAttachment & Record<string, unknown>,
   fallbackIndex: number,
 ): ChatAttachment | null {
+  const url = typeof attachment.url === "string" && attachment.url ? attachment.url : "";
   const dataUrl =
     typeof attachment.dataUrl === "string" ? attachment.dataUrl : "";
-  if (!dataUrl) {
+  const preferredSrc = dataUrl || url;
+  if (!preferredSrc) {
     return null;
   }
   return {
     id: String(attachment.id || `attachment-${fallbackIndex}`),
     name: String(attachment.name || `attachment-${fallbackIndex}.png`),
     type: String(attachment.type || "image/png"),
-    dataUrl,
+    dataUrl: preferredSrc,
+    url: url || undefined,
   };
 }
 
