@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import json
 import re
 from typing import Any
@@ -126,22 +125,24 @@ def _latest_user_images(messages: list[dict[str, Any]]) -> list[tuple[bytes, str
     return extract_image_from_message_content(_message_content(message))
 
 
-def _uploads_to_message_parts(images: list[tuple[bytes, str]]) -> list[dict[str, Any]]:
+def _uploads_to_message_parts(image_urls: list[str]) -> list[dict[str, Any]]:
     parts: list[dict[str, Any]] = []
-    for data, mime in images[:4]:
-        encoded = base64.b64encode(data).decode("ascii")
+    for image_url in image_urls[:4]:
+        normalized = str(image_url or "").strip()
+        if not normalized:
+            continue
         parts.append({
-            "type": "input_image",
-            "image_url": f"data:{mime or 'image/png'};base64,{encoded}",
+            "type": "image_url",
+            "image_url": {"url": normalized},
         })
     return parts
 
 
 def _merge_latest_user_uploads(
     messages: list[dict[str, Any]],
-    uploaded_images: list[tuple[bytes, str]],
+    uploaded_image_urls: list[str],
 ) -> list[dict[str, Any]]:
-    if not uploaded_images:
+    if not uploaded_image_urls:
         return messages
     next_messages = [dict(message) for message in messages]
     for index in range(len(next_messages) - 1, -1, -1):
@@ -154,14 +155,14 @@ def _merge_latest_user_uploads(
             text = content.strip()
             if text:
                 parts.append({"type": "input_text", "text": text})
-            parts.extend(_uploads_to_message_parts(uploaded_images))
+            parts.extend(_uploads_to_message_parts(uploaded_image_urls))
             message["content"] = parts
         elif isinstance(content, list):
             parts = [part for part in content if isinstance(part, dict)]
-            parts.extend(_uploads_to_message_parts(uploaded_images))
+            parts.extend(_uploads_to_message_parts(uploaded_image_urls))
             message["content"] = parts
         else:
-            message["content"] = _uploads_to_message_parts(uploaded_images)
+            message["content"] = _uploads_to_message_parts(uploaded_image_urls)
         next_messages[index] = message
         break
     return next_messages
@@ -237,6 +238,11 @@ def _heuristic_mode(messages: list[dict[str, Any]]) -> str:
     latest_images = _latest_user_images(messages)
     context_images = _recent_context_images(messages)
 
+    if latest_images and _pattern_match(
+        lower_prompt,
+        IMAGE_EDIT_PATTERNS + IMAGE_GENERATE_PATTERNS + FOLLOW_UP_EDIT_PATTERNS,
+    ):
+        return "image_edit"
     if latest_images and _pattern_match(lower_prompt, IMAGE_EDIT_PATTERNS):
         return "image_edit"
     if latest_images:
@@ -256,8 +262,14 @@ def decide_workspace_mode(messages: list[dict[str, Any]], mode: str = "auto") ->
         return normalized_mode
 
     latest_prompt = _latest_user_prompt(messages)
+    latest_prompt_lower = latest_prompt.lower()
     latest_image_count = len(_latest_user_images(messages))
     context_image_count = len(_recent_context_images(messages))
+    if latest_image_count and _pattern_match(
+        latest_prompt_lower,
+        IMAGE_EDIT_PATTERNS + IMAGE_GENERATE_PATTERNS + FOLLOW_UP_EDIT_PATTERNS,
+    ):
+        return "image_edit"
     classifier_messages = normalize_messages([
         {"role": "system", "content": INTENT_CLASSIFIER_SYSTEM_PROMPT},
         {
@@ -379,12 +391,13 @@ def handle_workspace_request(
         for data, mime in (uploaded_images or [])
         if isinstance(data, (bytes, bytearray)) and data
     ]
-    if latest_uploaded_images:
-        items = _merge_latest_user_uploads(items, latest_uploaded_images)
     uploaded_image_urls = [
-        {"url": save_image_bytes(data, base_url)}
+        save_image_bytes(data, base_url)
         for data, _mime in latest_uploaded_images[:4]
     ]
+    if latest_uploaded_images:
+        items = _merge_latest_user_uploads(items, uploaded_image_urls)
+    uploaded_image_url_items = [{"url": url} for url in uploaded_image_urls]
 
     prompt = _latest_user_prompt(items)
     if not prompt and not _recent_context_images(items):
@@ -393,8 +406,8 @@ def handle_workspace_request(
     decided_mode = decide_workspace_mode(items, mode)
     if decided_mode == "text":
         result = _text_response(items, str(model or "auto").strip() or "auto")
-        if uploaded_image_urls:
-            result["uploaded_images"] = uploaded_image_urls
+        if uploaded_image_url_items:
+            result["uploaded_images"] = uploaded_image_url_items
         return result
     if decided_mode == "image_generate":
         if not prompt:
@@ -406,8 +419,8 @@ def handle_workspace_request(
             size=size,
             base_url=base_url,
         )
-        if uploaded_image_urls:
-            result["uploaded_images"] = uploaded_image_urls
+        if uploaded_image_url_items:
+            result["uploaded_images"] = uploaded_image_url_items
         return result
 
     images = _latest_user_images(items) or _recent_context_images(items)
@@ -419,6 +432,6 @@ def handle_workspace_request(
         base_url=base_url,
         images=images,
     )
-    if uploaded_image_urls:
-        result["uploaded_images"] = uploaded_image_urls
+    if uploaded_image_url_items:
+        result["uploaded_images"] = uploaded_image_url_items
     return result
