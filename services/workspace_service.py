@@ -256,9 +256,15 @@ def _fallback_text_response(model: str, content: str) -> dict[str, Any]:
     }
 
 
-def _friendly_image_generation_error(message: str) -> str | None:
+def _friendly_image_generation_error(
+    message: str,
+    status_code: int | None = None,
+    code: str | None = None,
+) -> str | None:
     text = str(message or "").strip()
     lower = text.lower()
+    if status_code == 400 or code == "content_policy_violation":
+        return text
     if "content_policy_violation" in lower:
         return text
     if "gửi thêm chi tiết" in text or "gửi chi tiết" in text:
@@ -473,7 +479,11 @@ def handle_workspace_request(
                 base_url=base_url,
             )
         except ImageGenerationError as exc:
-            fallback_message = _friendly_image_generation_error(str(exc))
+            fallback_message = _friendly_image_generation_error(
+                str(exc),
+                status_code=exc.status_code,
+                code=exc.code,
+            )
             if fallback_message:
                 result = _fallback_text_response(image_generation_model, fallback_message)
             else:
@@ -494,7 +504,11 @@ def handle_workspace_request(
             images=images,
         )
     except ImageGenerationError as exc:
-        fallback_message = _friendly_image_generation_error(str(exc))
+        fallback_message = _friendly_image_generation_error(
+            str(exc),
+            status_code=exc.status_code,
+            code=exc.code,
+        )
         if fallback_message:
             result = _fallback_text_response(image_edit_model, fallback_message)
         else:
