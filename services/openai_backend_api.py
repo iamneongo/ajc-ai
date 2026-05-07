@@ -14,7 +14,7 @@ from PIL import Image
 from services.account_service import account_service
 from services.config import config
 from services.proxy_service import proxy_settings
-from utils.helper import ensure_ok, iter_sse_payloads, new_uuid
+from utils.helper import ensure_ok, iter_sse_payloads, load_image_input, new_uuid
 from utils.log import logger
 from utils.pow import build_legacy_requirements_token, build_proof_token, parse_pow_resources
 from utils.turnstile import solve_turnstile_token
@@ -324,14 +324,9 @@ class OpenAIBackendAPI:
                     image_url = str(raw_image.get("url") or raw_image.get("image_url") or "")
                 else:
                     image_url = str(raw_image or "")
-                if not image_url.startswith("data:") or "," not in image_url:
-                    continue
-                header, _, payload = image_url.partition(",")
-                mime = header.split(";", 1)[0].removeprefix("data:") or "image/png"
-                try:
-                    image_inputs.append((base64.b64decode(payload), mime))
-                except Exception:
-                    continue
+                loaded = load_image_input(image_url)
+                if loaded:
+                    image_inputs.append(loaded)
             if not image_inputs:
                 conversation_messages.append({
                     "id": new_uuid(),

@@ -171,9 +171,11 @@ function messageParts(message: ChatMessage) {
     });
   }
   for (const image of message.images || []) {
+    const imageSource =
+      message.role === "assistant" && image.url ? image.url : image.dataUrl;
     parts.push({
       type: "image_url",
-      image_url: { url: image.dataUrl },
+      image_url: { url: imageSource },
     });
   }
   return parts;
@@ -240,6 +242,9 @@ function friendlyChatErrorMessage(value: string) {
         lower.includes("image_upload")))
   ) {
     return "Dịch vụ tạo ảnh đang tạm thời từ chối yêu cầu. Hệ thống sẽ tự thử lại ngắn hạn; nếu vẫn lỗi, hãy chờ vài giây rồi gửi lại.";
+  }
+  if (lower.includes("status code 413") || lower.includes("status=413")) {
+    return "Lịch sử hội thoại đang chứa dữ liệu ảnh quá lớn cho một lần gửi. Hãy tải lại trang và thử lại; nếu vẫn còn, tạo một cuộc trò chuyện mới.";
   }
   return message;
 }

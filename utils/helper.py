@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import mimetypes
 import re
 import time
 import uuid
@@ -167,6 +168,45 @@ def extract_prompt_from_message_content(content: object) -> str:
     return "\n".join(parts).strip()
 
 
+def _image_bytes_from_url(url: str) -> tuple[bytes, str] | None:
+    normalized = str(url or "").strip()
+    if not normalized or not normalized.startswith(("http://", "https://")):
+        return None
+    try:
+        response = requests.get(
+            normalized,
+            headers={"Accept": "image/*,*/*;q=0.8"},
+            timeout=60,
+            verify=True,
+        )
+        ensure_ok(response, "image_url_fetch")
+    except Exception:
+        return None
+    data = response.content if isinstance(response.content, (bytes, bytearray)) else bytes(response.content or b"")
+    if not data:
+        return None
+    header_mime = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+    guessed_mime = mimetypes.guess_type(normalized.split("?", 1)[0])[0] or ""
+    mime = header_mime if header_mime.startswith("image/") else (guessed_mime or "image/png")
+    return data, mime
+
+
+def load_image_input(image_url: object) -> tuple[bytes, str] | None:
+    normalized = str(image_url or "").strip()
+    if not normalized:
+        return None
+    if normalized.startswith("data:"):
+        header, _, data = normalized.partition(",")
+        if not data:
+            return None
+        mime = header.split(";")[0].removeprefix("data:")
+        try:
+            return base64.b64decode(data), mime or "image/png"
+        except Exception:
+            return None
+    return _image_bytes_from_url(normalized)
+
+
 def extract_image_from_message_content(content: object) -> list[tuple[bytes, str]]:
     if not isinstance(content, list):
         return []
@@ -178,16 +218,13 @@ def extract_image_from_message_content(content: object) -> list[tuple[bytes, str
         if item_type == "image_url":
             url_obj = item.get("image_url") or item
             url = str(url_obj.get("url") or "") if isinstance(url_obj, dict) else str(url_obj)
-            if url.startswith("data:"):
-                header, _, data = url.partition(",")
-                mime = header.split(";")[0].removeprefix("data:")
-                images.append((base64.b64decode(data), mime or "image/png"))
+            loaded = load_image_input(url)
+            if loaded:
+                images.append(loaded)
         elif item_type == "input_image":
-            image_url = str(item.get("image_url") or "")
-            if image_url.startswith("data:"):
-                header, _, data = image_url.partition(",")
-                mime = header.split(";")[0].removeprefix("data:")
-                images.append((base64.b64decode(data), mime or "image/png"))
+            loaded = load_image_input(item.get("image_url") or "")
+            if loaded:
+                images.append(loaded)
     return images
 
 
