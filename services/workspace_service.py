@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from services.content_filter import request_text
 from services.protocol import openai_v1_image_edit, openai_v1_image_generations
 from services.protocol.conversation import save_image_bytes
-from services.protocol.conversation import ConversationRequest, collect_text, normalize_messages, text_backend
+from services.protocol.conversation import ConversationRequest, ImageGenerationError, collect_text, normalize_messages, text_backend
 from utils.helper import extract_image_from_message_content
 
 VALID_WORKSPACE_MODES = {"auto", "text", "image_generate", "image_edit"}
@@ -244,6 +244,30 @@ def _normalize_image_edit_prompt(prompt: str, has_images: bool) -> str:
     return normalized
 
 
+def _fallback_text_response(model: str, content: str) -> dict[str, Any]:
+    return {
+        "mode": "text",
+        "model": model,
+        "message": {
+            "role": "assistant",
+            "content": content,
+        },
+        "images": [],
+    }
+
+
+def _friendly_image_generation_error(message: str) -> str | None:
+    text = str(message or "").strip()
+    lower = text.lower()
+    if "content_policy_violation" in lower:
+        return text
+    if "gửi thêm chi tiết" in text or "gửi chi tiết" in text:
+        return text
+    if "send more details" in lower or "more details" in lower:
+        return text
+    return None
+
+
 def _extract_json_object(raw_text: str) -> dict[str, Any]:
     text = str(raw_text or "").strip()
     if not text:
@@ -439,26 +463,42 @@ def handle_workspace_request(
     if decided_mode == "image_generate":
         if not prompt:
             raise HTTPException(status_code=400, detail={"error": "prompt is required for image generation"})
-        result = _image_generate_response(
-            prompt=prompt,
-            model=str(image_model or "gpt-image-2").strip() or "gpt-image-2",
-            n=max(1, min(4, int(n or 1))),
-            size=size,
-            base_url=base_url,
-        )
+        image_generation_model = str(image_model or "gpt-image-2").strip() or "gpt-image-2"
+        try:
+            result = _image_generate_response(
+                prompt=prompt,
+                model=image_generation_model,
+                n=max(1, min(4, int(n or 1))),
+                size=size,
+                base_url=base_url,
+            )
+        except ImageGenerationError as exc:
+            fallback_message = _friendly_image_generation_error(str(exc))
+            if fallback_message:
+                result = _fallback_text_response(image_generation_model, fallback_message)
+            else:
+                raise
         if uploaded_image_url_items:
             result["uploaded_images"] = uploaded_image_url_items
         return result
 
     images = _latest_user_images(items) or _recent_context_images(items)
-    result = _image_edit_response(
-        prompt=prompt,
-        model=str(image_model or "gpt-image-2").strip() or "gpt-image-2",
-        n=max(1, min(4, int(n or 1))),
-        size=size,
-        base_url=base_url,
-        images=images,
-    )
+    image_edit_model = str(image_model or "gpt-image-2").strip() or "gpt-image-2"
+    try:
+        result = _image_edit_response(
+            prompt=prompt,
+            model=image_edit_model,
+            n=max(1, min(4, int(n or 1))),
+            size=size,
+            base_url=base_url,
+            images=images,
+        )
+    except ImageGenerationError as exc:
+        fallback_message = _friendly_image_generation_error(str(exc))
+        if fallback_message:
+            result = _fallback_text_response(image_edit_model, fallback_message)
+        else:
+            raise
     if uploaded_image_url_items:
         result["uploaded_images"] = uploaded_image_url_items
     return result
