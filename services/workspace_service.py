@@ -93,6 +93,19 @@ FOLLOW_UP_EDIT_PATTERNS = [
     r"\bless\b",
 ]
 
+GENERIC_IMAGE_EDIT_PATTERNS = [
+    r"^\s*tạo ảnh này\s*$",
+    r"^\s*tao anh nay\s*$",
+    r"^\s*tạo lại ảnh này\s*$",
+    r"^\s*tao lai anh nay\s*$",
+    r"^\s*vẽ ảnh này\s*$",
+    r"^\s*ve anh nay\s*$",
+    r"^\s*edit this image\s*$",
+    r"^\s*use this image\s*$",
+    r"^\s*ảnh này\s*$",
+    r"^\s*anh nay\s*$",
+]
+
 
 def _message_role(message: dict[str, Any]) -> str:
     return str(message.get("role") or "user").strip().lower()
@@ -216,6 +229,19 @@ def _workspace_images_to_uploads(images: list[tuple[bytes, str]]) -> list[tuple[
 
 def _pattern_match(prompt: str, patterns: list[str]) -> bool:
     return any(re.search(pattern, prompt, flags=re.IGNORECASE) for pattern in patterns)
+
+
+def _normalize_image_edit_prompt(prompt: str, has_images: bool) -> str:
+    normalized = str(prompt or "").strip()
+    if not has_images:
+        return normalized
+    if _pattern_match(normalized.lower(), GENERIC_IMAGE_EDIT_PATTERNS):
+        return (
+            "Tạo một phiên bản mới dựa trên ảnh đính kèm. "
+            "Giữ chủ thể chính, bố cục tổng thể và phong cách hình ảnh gần với ảnh gốc, "
+            "đồng thời làm kết quả sạch, rõ và hoàn thiện hơn."
+        )
+    return normalized
 
 
 def _extract_json_object(raw_text: str) -> dict[str, Any]:
@@ -349,6 +375,7 @@ def _image_edit_response(
     uploads = _workspace_images_to_uploads(images)
     if not uploads:
         raise HTTPException(status_code=400, detail={"error": "image file is required for image edit"})
+    prompt = _normalize_image_edit_prompt(prompt, bool(uploads))
     result = openai_v1_image_edit.handle({
         "prompt": prompt,
         "images": uploads,
