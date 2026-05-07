@@ -307,14 +307,31 @@ class OpenAIBackendAPI:
             for part in content:
                 if not isinstance(part, dict):
                     continue
-                part_type = str(part.get("type") or "")
-                if part_type == "text":
-                    text_parts.append(str(part.get("text") or ""))
-                elif part_type == "image":
+                part_type = str(part.get("type") or "").strip()
+                if part_type in {"text", "input_text"}:
+                    text_parts.append(str(part.get("text") or part.get("input_text") or ""))
+                    continue
+                if part_type == "image":
                     data = part.get("data")
                     mime = str(part.get("mime") or "image/png")
                     if isinstance(data, (bytes, bytearray)):
                         image_inputs.append((bytes(data), mime))
+                    continue
+                if part_type not in {"image_url", "input_image"}:
+                    continue
+                raw_image = part.get("image_url") if part_type == "input_image" else (part.get("image_url") or part)
+                if isinstance(raw_image, dict):
+                    image_url = str(raw_image.get("url") or raw_image.get("image_url") or "")
+                else:
+                    image_url = str(raw_image or "")
+                if not image_url.startswith("data:") or "," not in image_url:
+                    continue
+                header, _, payload = image_url.partition(",")
+                mime = header.split(";", 1)[0].removeprefix("data:") or "image/png"
+                try:
+                    image_inputs.append((base64.b64decode(payload), mime))
+                except Exception:
+                    continue
             if not image_inputs:
                 conversation_messages.append({
                     "id": new_uuid(),

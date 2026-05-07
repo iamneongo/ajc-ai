@@ -226,6 +226,21 @@ function friendlyChatErrorMessage(value: string) {
   if (lower.includes("image file is required for image edit")) {
     return "Không tìm thấy ảnh nguồn để chỉnh sửa. Hãy đính kèm ảnh hoặc yêu cầu tạo ảnh mới trước.";
   }
+  if (
+    lower.includes("authenticated upstream account required for image input")
+  ) {
+    return "Tài khoản nguồn hiện chưa sẵn sàng để đọc ảnh đính kèm. Hãy kiểm tra lại access_token trong Quản lý tài khoản.";
+  }
+  if (
+    lower.includes("upstream image request was rejected temporarily") ||
+    (lower.includes("status=403") &&
+      (lower.includes("/backend-api/f/conversation") ||
+        lower.includes("/backend-api/f/conversation/prepare") ||
+        lower.includes("/backend-api/files") ||
+        lower.includes("image_upload")))
+  ) {
+    return "Dịch vụ tạo ảnh đang tạm thời từ chối yêu cầu. Hệ thống sẽ tự thử lại ngắn hạn; nếu vẫn lỗi, hãy chờ vài giây rồi gửi lại.";
+  }
   return message;
 }
 

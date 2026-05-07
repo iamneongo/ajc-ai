@@ -172,7 +172,7 @@ export function ChatComposer({
                 <button
                   type="button"
                   onClick={() => void onSubmit()}
-                  disabled={!prompt.trim() || isSending}
+                  disabled={(!prompt.trim() && attachments.length === 0) || isSending}
                   className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-stone-950 text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300 sm:size-11"
                   aria-label="Gửi tin nhắn"
                 >

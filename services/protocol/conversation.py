@@ -54,11 +54,36 @@ def is_token_invalid_error(message: str) -> bool:
     )
 
 
+def is_retryable_image_error(message: str) -> bool:
+    text = str(message or "").lower()
+    if not text:
+        return False
+    if any(fragment in text for fragment in ("status=429", "status=500", "status=502", "status=503", "status=504")):
+        return True
+    if "curl: (28)" in text or "curl: (35)" in text or "tls connect error" in text or "openssl_internal" in text:
+        return True
+    if "status=403" not in text:
+        return False
+    return any(
+        fragment in text
+        for fragment in (
+            "/backend-api/sentinel/chat-requirements",
+            "/backend-api/f/conversation/prepare",
+            "/backend-api/f/conversation",
+            "/backend-api/files",
+            "image_upload",
+            "/uploaded failed",
+        )
+    )
+
+
 def image_stream_error_message(message: str) -> str:
     text = str(message or "")
     lower = text.lower()
     if "curl: (35)" in lower or "tls connect error" in lower or "openssl_internal" in lower:
         return "upstream image connection failed, please retry later"
+    if is_retryable_image_error(lower):
+        return "upstream image request was rejected temporarily, please retry"
     return text or "image generation failed"
 
 
@@ -592,6 +617,7 @@ def stream_image_outputs_with_pool(request: ConversationRequest) -> Iterator[Ima
 
     emitted = False
     last_error = ""
+    retry_counts: dict[str, int] = {}
     for index in range(1, request.n + 1):
         while True:
             try:
@@ -628,12 +654,18 @@ def stream_image_outputs_with_pool(request: ConversationRequest) -> Iterator[Ima
                 account_service.mark_image_result(token, False)
                 raise
             except Exception as exc:
-                account_service.mark_image_result(token, False)
                 last_error = str(exc)
                 logger.warning({"event": "image_stream_fail", "request_token": token, "error": last_error})
+                account_service.mark_image_result(token, False)
                 if not emitted_for_token and is_token_invalid_error(last_error):
                     account_service.remove_invalid_token(token, "image_stream")
                     continue
+                if not emitted_for_token and is_retryable_image_error(last_error):
+                    retry_count = int(retry_counts.get(token, 0))
+                    if retry_count < 2:
+                        retry_counts[token] = retry_count + 1
+                        time.sleep(1.0 + retry_count)
+                        continue
                 raise ImageGenerationError(image_stream_error_message(last_error)) from exc
 
     if not emitted:
