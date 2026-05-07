@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   createWorkspaceResponse,
+  createWorkspaceResponseWithUploads,
   type WorkspaceRequestMessage,
 } from "@/lib/api";
 import {
@@ -82,6 +83,23 @@ function readFileAsDataUrl(file: File) {
     reader.onerror = () => reject(new Error("Đọc ảnh đính kèm thất bại"));
     reader.readAsDataURL(file);
   });
+}
+
+function dataUrlToFile(attachment: ChatAttachment, index: number) {
+  const normalized = String(attachment.dataUrl || "");
+  const [header, data = ""] = normalized.split(",", 2);
+  const mimeMatch = header.match(/^data:(.*?);base64$/i);
+  const mime = mimeMatch?.[1] || attachment.type || "image/png";
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let indexOffset = 0; indexOffset < binary.length; indexOffset += 1) {
+    bytes[indexOffset] = binary.charCodeAt(indexOffset);
+  }
+  return new File(
+    [bytes],
+    attachment.name || `attachment-${index + 1}.png`,
+    { type: mime },
+  );
 }
 
 function attachmentFromFile(
@@ -215,8 +233,21 @@ function messageParts(
 
 function conversationMessagesForApi(
   messages: ChatMessage[],
-  options: { compactImageHistory?: boolean; imageContextLimit?: number } = {},
+  options: {
+    compactImageHistory?: boolean;
+    imageContextLimit?: number;
+    omitLatestUserImages?: boolean;
+  } = {},
 ): WorkspaceRequestMessage[] {
+  let latestUserIndex = -1;
+  if (options.omitLatestUserImages) {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].role === "user") {
+        latestUserIndex = index;
+        break;
+      }
+    }
+  }
   const keepImageIndexes =
     options.compactImageHistory === false
       ? null
@@ -226,7 +257,12 @@ function conversationMessagesForApi(
       return [];
     }
     const parts = messageParts(message, {
-      includeImages: keepImageIndexes ? keepImageIndexes.has(index) : true,
+      includeImages:
+        index === latestUserIndex
+          ? false
+          : keepImageIndexes
+            ? keepImageIndexes.has(index)
+            : true,
     });
     if (parts.length === 0) {
       return [];
@@ -643,7 +679,13 @@ export function ChatWorkspace() {
       ...(targetConversation?.messages ?? []),
       userMessage,
     ];
-    const requestMessages = conversationMessagesForApi(draftMessages);
+    const hasNewUploads = attachments.length > 0;
+    const uploadedFiles = hasNewUploads
+      ? attachments.map((attachment, index) => dataUrlToFile(attachment, index))
+      : [];
+    const requestMessages = conversationMessagesForApi(draftMessages, {
+      omitLatestUserImages: hasNewUploads,
+    });
 
     setSelectedConversationId(conversationId);
     resetComposer();
@@ -653,22 +695,37 @@ export function ChatWorkspace() {
     try {
       let response;
       try {
-        response = await createWorkspaceResponse(requestMessages, {
-          model: chatModel,
-        });
+        response = hasNewUploads
+          ? await createWorkspaceResponseWithUploads(
+              requestMessages,
+              uploadedFiles,
+              {
+                model: chatModel,
+              },
+            )
+          : await createWorkspaceResponse(requestMessages, {
+              model: chatModel,
+            });
       } catch (error) {
         if (!isPayloadTooLargeError(error)) {
           throw error;
         }
-        response = await createWorkspaceResponse(
-          conversationMessagesForApi(draftMessages, {
-            compactImageHistory: true,
-            imageContextLimit: 1,
-          }),
-          {
-            model: chatModel,
-          },
-        );
+        const retryMessages = conversationMessagesForApi(draftMessages, {
+          compactImageHistory: true,
+          imageContextLimit: 1,
+          omitLatestUserImages: hasNewUploads,
+        });
+        response = hasNewUploads
+          ? await createWorkspaceResponseWithUploads(
+              retryMessages,
+              uploadedFiles,
+              {
+                model: chatModel,
+              },
+            )
+          : await createWorkspaceResponse(retryMessages, {
+              model: chatModel,
+            });
       }
       const responseImages = responseImagesToMessageImages(
         response.images || [],

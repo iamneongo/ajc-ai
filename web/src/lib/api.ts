@@ -438,6 +438,36 @@ export async function createWorkspaceResponse(
   });
 }
 
+export async function createWorkspaceResponseWithUploads(
+  messages: WorkspaceRequestMessage[],
+  files: File[],
+  options: {
+    model?: ChatModel;
+    image_model?: ImageModel;
+    mode?: "auto" | "text" | "image_generate" | "image_edit";
+    n?: number;
+    size?: string;
+  } = {},
+) {
+  const formData = new FormData();
+  formData.append("messages", JSON.stringify(messages));
+  formData.append("model", options.model || "auto");
+  formData.append("image_model", options.image_model || "gpt-image-2");
+  formData.append("mode", options.mode || "auto");
+  formData.append("n", String(options.n || 1));
+  if (options.size) {
+    formData.append("size", options.size);
+  }
+  for (const file of files) {
+    formData.append("image", file, file.name || "upload.png");
+  }
+
+  return httpRequest<WorkspaceResponse>("/api/workspace/respond-upload", {
+    method: "POST",
+    body: formData,
+  });
+}
+
 export async function createImageEditTask(
   clientTaskId: string,
   files: File | File[],

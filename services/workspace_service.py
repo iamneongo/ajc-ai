@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import re
 from typing import Any
@@ -122,6 +123,47 @@ def _latest_user_images(messages: list[dict[str, Any]]) -> list[tuple[bytes, str
     if not message:
         return []
     return extract_image_from_message_content(_message_content(message))
+
+
+def _uploads_to_message_parts(images: list[tuple[bytes, str]]) -> list[dict[str, Any]]:
+    parts: list[dict[str, Any]] = []
+    for data, mime in images[:4]:
+        encoded = base64.b64encode(data).decode("ascii")
+        parts.append({
+            "type": "input_image",
+            "image_url": f"data:{mime or 'image/png'};base64,{encoded}",
+        })
+    return parts
+
+
+def _merge_latest_user_uploads(
+    messages: list[dict[str, Any]],
+    uploaded_images: list[tuple[bytes, str]],
+) -> list[dict[str, Any]]:
+    if not uploaded_images:
+        return messages
+    next_messages = [dict(message) for message in messages]
+    for index in range(len(next_messages) - 1, -1, -1):
+        message = next_messages[index]
+        if _message_role(message) != "user":
+            continue
+        content = _message_content(message)
+        if isinstance(content, str):
+            parts: list[dict[str, Any]] = []
+            text = content.strip()
+            if text:
+                parts.append({"type": "input_text", "text": text})
+            parts.extend(_uploads_to_message_parts(uploaded_images))
+            message["content"] = parts
+        elif isinstance(content, list):
+            parts = [part for part in content if isinstance(part, dict)]
+            parts.extend(_uploads_to_message_parts(uploaded_images))
+            message["content"] = parts
+        else:
+            message["content"] = _uploads_to_message_parts(uploaded_images)
+        next_messages[index] = message
+        break
+    return next_messages
 
 
 def _recent_context_images(messages: list[dict[str, Any]]) -> list[tuple[bytes, str]]:
@@ -326,10 +368,18 @@ def handle_workspace_request(
     n: int = 1,
     size: str | None = None,
     base_url: str = "",
+    uploaded_images: list[tuple[bytes, str]] | None = None,
 ) -> dict[str, Any]:
     items = [message for message in (messages or []) if isinstance(message, dict)]
     if not items:
         raise HTTPException(status_code=400, detail={"error": "messages is required"})
+    latest_uploaded_images = [
+        (data, mime or "image/png")
+        for data, mime in (uploaded_images or [])
+        if isinstance(data, (bytes, bytearray)) and data
+    ]
+    if latest_uploaded_images:
+        items = _merge_latest_user_uploads(items, latest_uploaded_images)
 
     prompt = _latest_user_prompt(items)
     if not prompt and not _recent_context_images(items):

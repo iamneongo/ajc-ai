@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
@@ -192,6 +194,51 @@ def create_router() -> APIRouter:
             int(payload.get("n") or 1),
             payload.get("size"),
             resolve_image_base_url(request),
+        )
+
+    @router.post("/api/workspace/respond-upload")
+    async def workspace_respond_upload(
+            request: Request,
+            authorization: str | None = Header(default=None),
+            messages: str = Form(...),
+            model: str = Form(default="auto"),
+            image_model: str = Form(default="gpt-image-2"),
+            mode: str = Form(default="auto"),
+            n: int = Form(default=1),
+            size: str | None = Form(default=None),
+            image: list[UploadFile] | None = File(default=None),
+            image_list: list[UploadFile] | None = File(default=None, alias="image[]"),
+    ):
+        identity = require_identity(authorization)
+        try:
+            parsed_messages = json.loads(messages)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail={"error": "invalid messages payload"}) from exc
+        if not isinstance(parsed_messages, list):
+            raise HTTPException(status_code=400, detail={"error": "messages must be a list"})
+
+        request_preview = request_text(parsed_messages)
+        call = LoggedCall(identity, "/api/workspace/respond-upload", model, "工作区对话", request_text=request_preview)
+        await filter_or_log(call, request_preview)
+
+        uploads = [*(image or []), *(image_list or [])]
+        uploaded_images: list[tuple[bytes, str]] = []
+        for upload in uploads:
+            image_data = await upload.read()
+            if not image_data:
+                continue
+            uploaded_images.append((image_data, upload.content_type or "image/png"))
+
+        return await call.run(
+            handle_workspace_request,
+            parsed_messages,
+            mode,
+            model,
+            image_model,
+            n,
+            size,
+            resolve_image_base_url(request),
+            uploaded_images,
         )
 
     return router
